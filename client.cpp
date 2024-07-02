@@ -11,6 +11,10 @@ void download_file(int client_socket, const std::string &filename) {
     mkdir("output", 0777);
     char buffer[1024];
     int bytes_received = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
+    if (bytes_received < 0) {
+        std::cerr << "Error receiving file size" << std::endl;
+        return;
+    }
     buffer[bytes_received] = '\0';
     int total_size = std::stoi(buffer);
 
@@ -39,19 +43,26 @@ int main() {
         std::cerr << "Error creating socket" << std::endl;
         return -1;
     }
+    std::cout << "Socket created successfully" << std::endl;
 
     struct sockaddr_in server_addr;
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(5000);
-    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");  
+    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");  // Replace with the actual IP address of the server
 
+    std::cout << "Attempting to connect to server..." << std::endl;
     if (connect(client_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         std::cerr << "Error connecting to server" << std::endl;
         return -1;
     }
+    std::cout << "Connected to server" << std::endl;
 
     char buffer[1024];
     int bytes_received = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
+    if (bytes_received < 0) {
+        std::cerr << "Error receiving file list from server" << std::endl;
+        return -1;
+    }
     buffer[bytes_received] = '\0';
     std::cout << "Available files:" << std::endl << buffer << std::endl;
 
