@@ -2,135 +2,127 @@ import socket
 import os
 import sys
 import signal
+import json
 import time
+import threading
+import queue
 
+SERVER = "10.123.1.207"
+SERVER_PORT = 5000
+FORMAT = "utf-8"
 
-SERVER = "192.168.1.20"
-SERVER_PORT = 65000
-FORMAT = "utf8"
-
-class FileInfo:
-    def __init__(self, filename, size):
-        self.filename = filename
-        self.size = size
-        self.bytes_downloaded = 0
-        self.priority = "NORMAL"
-    def __crit__(self, critical):
-        self.priority = critical
-
-downloading_file = []
-downloaded_file = []
 client = None
-def scan_file():
-    while True:
-        with open('input.txt', 'r') as file:  # Update the path to your text file
-            # Add your logic to process the file here
-            print(file.read())
-        time.sleep(2)
-def main():
-    global client
-    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client.connect((SERVER, SERVER_PORT))
-    try: 
-        file_list_data = client.recv(4096).decode(FORMAT)
-        file_list = dict(line.split() for line in file_list_data.splitlines())
-        
-        print("Available files: ")
-        for filename, size in file_list.items():
-            print(f"{filename} - {size}")
-        
-        file_info_dict = {}
-        for filename, size in file_list.items():
-            file_size = int(size.rstrip('MB'))
-            file_size = file_size * 1024 * 1024
-            file_info_dict[filename] = FileInfo(filename, file_size)
-        
-        
-        # for file_info in file_info_dict.values():
-        #     print(f"{file_info.filename} - {file_info.size}")
-        
-        handle_input_file(client, file_list, file_info_dict)
-        client.sendall("Done".encode(FORMAT))
-        client.recv(1024)
-    except: 
-        client.sendall("Done".encode(FORMAT))
-        client.recv(1024)
-        print("Closing...")
+file_list = {}
+download_queue = queue.Queue()
+downloading = False
 
 def signal_handler(sig, frame):
+    print("\nClosing connection and exiting...")
     if client:
         client.close()
     sys.exit(0)
 
-def download_file(client, output_path, file_info):
-    chunksize = 0
-    file_size = file_info.size
-    filename = file_info.filename
-    client.sendall(filename.encode(FORMAT))
-    client.recv(3)
-    client.sendall(file_info.priority.encode(FORMAT))
-    client.recv(3)
-    if not os.path.exists(output_path):
-        open(output_path, "wb").close()
-            
-    with open(output_path, "r+b") as output:
-        output.seek(file_info.bytes_downloaded, 0)
-        if file_info.priority == "CRITICAL":
-            chunksize = 4096*10
-        elif file_info.priority == "HIGH":
-            chunksize = 4096*4
-        else: chunksize = 4096
-        bytes_received = client.recv(chunksize)
-        client.sendall(b"ACK")
-        output.write(bytes_received)
-        print(f"{len(bytes_received)}")
-        file_info.bytes_downloaded += len(bytes_received)
-        percentage = 100 * file_info.bytes_downloaded/file_size
-        print(f"\rDownloading {filename} .... {percentage:.2f}%")
-        if file_info.bytes_downloaded == file_size:
-            downloaded_file.append(filename)
-            downloading_file.remove(filename)
-           
-            
-def load_input():
-    input_files = {}
-    with open("input.txt", 'r') as f:
-        for line in f:
-            filename, priority = line.strip().split()
-            input_files[filename] = priority
-    return input_files
+def get_chunk_size(priority):
+    base_size = 4096
+    if priority == "CRITICAL":
+        return base_size * 10
+    elif priority == "HIGH":
+        return base_size * 4
+    return base_size
 
-def send_input(conn, input_file):
-    input_data = "\n".join([f"{filename} {priority}" for filename, priority in input_file.items()])
-    conn.sendall(input_data.encode(FORMAT))
+def download_file(filename, priority):
+    global downloading
+    chunk_size = get_chunk_size(priority)
+    client.sendall(f"{filename} {priority}".encode(FORMAT))
+    response = client.recv(1024).decode(FORMAT)
+    
+    if response == "FILE_NOT_FOUND":
+        print(f"File {filename} not found on server.")
+        return
 
-def handle_input_file(client, file_list, file_info_dict):
-    os.makedirs("output", exist_ok=True)
-    while True:
-        time.sleep(2)
-        with open("input.txt", "r") as input:
-            for line in input:
-                parts = line.strip().split()
-                if len(parts) >= 2:
-                    filename = parts[0]
-                    priority = parts[1]
-                    if filename in file_list and filename not in downloaded_file:
-                        file_info = file_info_dict[filename]
-                        file_info.priority = priority
-                        downloading_file.append(filename)
-
-        while True:
-            if not downloading_file:
+    file_path = os.path.join("output", filename)
+    file_size = file_list[filename]
+    
+    with open(file_path, "wb") as f:
+        bytes_downloaded = 0
+        while bytes_downloaded < file_size:
+            chunk = client.recv(chunk_size)
+            if not chunk:
                 break
-            for filename in downloading_file:
-                file_info = file_info_dict[filename]
-                output_path = os.path.join("output", filename)
-                download_file(client, output_path, file_info)
-                                         
-if __name__ == "__main__":
+            f.write(chunk)
+            bytes_downloaded += len(chunk)
+            client.sendall(b"OK")
+            
+            percentage = (bytes_downloaded / file_size) * 100
+            print(f"\rDownloading {filename} ... {percentage:.2f}%",end=" ")
+    
+    print(f"Finished downloading {filename}")
+    downloading = False
+
+def download_manager():
+    global downloading
+    while True:
+        if not downloading and not download_queue.empty():
+            filename, priority = download_queue.get()
+            print(f"Starting download of {filename} with priority {priority}")
+            downloading = True
+            download_file(filename, priority)
+        else:
+            time.sleep(0.1)
+
+def scan_input_file():
+    last_modified = 0
+    processed_lines = set()
+    while True:
+        try:
+            if os.path.exists('input.txt'):
+                current_modified = os.path.getmtime('input.txt')
+                if current_modified > last_modified:
+                    with open('input.txt', 'r') as file:
+                        lines = file.readlines()
+                        for line in lines:
+                            line = line.strip()
+                            if line and line not in processed_lines:
+                                parts = line.split()
+                                if len(parts) == 2:
+                                    filename, priority = parts
+                                    if filename in file_list:
+                                        download_queue.put((filename, priority))
+                                        processed_lines.add(line)
+                                        print(f"Added {filename} to download queue with priority {priority}")
+                                    else:
+                                        print(f"File {filename} is not available on the server.")
+                                else:
+                                    print(f"Invalid line in input.txt: {line}")
+                    last_modified = current_modified
+            else:
+                print("input.txt does not exist. Creating an empty file.")
+                open('input.txt', 'a').close()
+        except Exception as e:
+            print(f"Error reading input file: {e}")
+        time.sleep(2)
+
+def main():
+    global client, file_list
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect((SERVER, SERVER_PORT))
+
     signal.signal(signal.SIGINT, signal_handler)
+
+    response = client.recv(4096).decode(FORMAT)
+    file_list = json.loads(response)
+    print("Available files:")
+    for filename, size in file_list.items():
+        print(f"{filename}: {size} bytes")
+
+    os.makedirs("output", exist_ok=True)
+
+    threading.Thread(target=scan_input_file, daemon=True).start()
+    threading.Thread(target=download_manager, daemon=True).start()
+
+    print("Monitoring input.txt for download requests...")
+    while True:
+        time.sleep(1)
+
+if __name__ == "__main__":
     main()
-
-
-    
-    
