@@ -3,8 +3,7 @@ import os
 import sys
 import signal
 
-
-SERVER = "10.126.0.108"
+SERVER = "10.126.1.232"
 SERVER_PORT = 65000
 FORMAT = "utf8"
 
@@ -18,6 +17,7 @@ downloaded_files = []
 client = None
 
 def main():
+    global client
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client.connect((SERVER, SERVER_PORT))
     try: 
@@ -30,66 +30,64 @@ def main():
         
         file_info_dict = {}    
         for filename, size in file_list.items():
-                number = size[:-2]
-                unit = size[-2:]
-                file_size = GetSize(number, unit)
-                file_info_dict[filename] = FileInfo(filename, file_size)
+            number = size[:-2] if size[-2:] in ["KB", "MB", "GB"] else size[:-1]
+            unit = size[-2:] if size[-2:] in ["KB", "MB", "GB"] else size[-1]
+            file_size = GetSize(number, unit)
+            file_info_dict[filename] = FileInfo(filename, file_size)
         
-        handle_input_file(client, file_list)
-    except: 
+        handle_input_file(client, file_list, file_info_dict)
+    except Exception as e:
+        print(f"Error: {e}")
         client.sendall("Done".encode(FORMAT))
         client.recv(1024)
         print("Closing...")
+        client.close()
 
 def GetSize(number, unit):
-    if unit == "KB":
-        file_size = number*1024
+    number = float(number)
+    if unit == "B":
+        return number
+    elif unit == "KB":
+        return number * 1024
     elif unit == "MB":
-        file_size = number*pow(1024,2)
+        return number * 1024**2
     elif unit == "GB":
-        file_size = number*pow(1024,3)
-    return file_size        
-    
+        return number * 1024**3
+    else:
+        raise ValueError(f"Unrecognized unit: {unit}")
+
 def signal_handler(sig, frame):
     if client:
         client.close()
     sys.exit(0)
 
-def download_file(client, output_path, file, file_size):
-    client.sendall(file.encode(FORMAT))
-    # client.recv(1024)
+def download_file(client, output_path, file_info):
+    client.sendall(file_info.filename.encode(FORMAT))
     received = 0
     with open(output_path, "wb") as output:
         while True:
             byte_received = client.recv(4096)
-            if byte_received==b"Done":
+            if byte_received == b"Done":
                 break
             client.sendall(b"ACK")
             output.write(byte_received)
             received += len(byte_received)
-            percentage = 100 * received/(file_size*1024*1024)
-            print(f"\rDownloading {file} .... {percentage:.2f}%",end=" ")
-            
-        output, filename = os.path.split(output_path)
-        print(f"\rDownloading {filename} ")
-def handle_input_file(client, file_list):
-    os.makedirs("output", exist_ok= True)
+            percentage = 100 * received / file_info.size
+            print(f"\rDownloading {file_info.filename} .... {percentage:.2f}%", end=" ")
+        print(f"\rDownloaded {file_info.filename}")
+
+def handle_input_file(client, file_list, file_info_dict):
+    os.makedirs("output", exist_ok=True)
     while True:
-        with open("input.txt", "r") as input:
-            files = input.read().splitlines()
+        with open("input.txt", "r") as input_file:
+            files = input_file.read().splitlines()
         for file in files:
             file = file.strip()
-            if file in file_list:
-                if file not in downloaded_files:
-                    file_size = int(file_list[file].rstrip('MB'))
-                    output_path = os.path.join("output", file)
-                    download_file(client, output_path, file, file_size)
-                    downloaded_files.append(file)
-            
-
-      
+            if file in file_list and file not in downloaded_files:
+                output_path = os.path.join("output", file)
+                download_file(client, output_path, file_info_dict[file])
+                downloaded_files.append(file)
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
     main()
-
