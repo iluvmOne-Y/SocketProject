@@ -1,7 +1,7 @@
 import socket
 import threading
 
-SERVER = "192.168.1.6"
+SERVER = "10.126.1.232"
 SERVER_PORT = 65000
 FORMAT = "utf8"
 
