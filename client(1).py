@@ -4,7 +4,7 @@ import sys
 import signal
 
 
-SERVER = "10.123.0.84"
+SERVER = "10.126.0.108"
 SERVER_PORT = 65000
 FORMAT = "utf8"
 
@@ -37,7 +37,6 @@ def download_file(client, output_path, file, file_size):
     client.sendall(file.encode(FORMAT))
     # client.recv(1024)
     received = 0
-    last_printed_percentage = -1
     with open(output_path, "wb") as output:
         while True:
             byte_received = client.recv(4096)
@@ -47,12 +46,12 @@ def download_file(client, output_path, file, file_size):
             output.write(byte_received)
             received += len(byte_received)
             percentage = 100 * received/(file_size*1024*1024)
-            rounded_percentage = round(percentage / 10.0) * 10
-            if rounded_percentage != last_printed_percentage:
-                print(f"\rDownloading {file} .... {rounded_percentage}%",end=" ")
-                last_printed_percentage = rounded_percentage
+            
+            
+            print(f"\rDownloading {file} .... {percentage:.2f}%",end=" ")
+            
         output, filename = os.path.split(output_path)
-        print(f"\rDownloading {filename} .... 100%")
+        print(f"\rDownloading {filename} ")
 def handle_input_file(client, file_list):
     os.makedirs("output", exist_ok= True)
     while True:
