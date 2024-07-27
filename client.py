@@ -4,8 +4,11 @@ import sys
 import signal
 import time
 import threading
+import curses
+stdscr = curses.initscr()
 
-SERVER = "10.123.1.93"
+
+SERVER = "192.168.1.6"
 SERVER_PORT = 65000
 FORMAT = "utf8"
 
@@ -23,6 +26,7 @@ downloading_file = []
 downloaded_file = []
 stop_event = threading.Event()
 download_lock = threading.Lock()
+cursor_positions = {}
 client = None
 
 def main():
@@ -97,7 +101,15 @@ def process(client, file_info_dict):
                 else:
                     download_file(client, output_path, file_info)    
       
-
+def recvall(sock, n):
+    # Helper function to recv n bytes or return None if EOF is hit
+    data = bytearray()
+    while len(data) < n:
+        packet = sock.recv(n - len(data))
+        if not packet:
+            return None
+        data.extend(packet)
+    return data
 def download_file(client, output_path, file_info):   
     chunksize = 0
     file_size = file_info.size
@@ -128,13 +140,20 @@ def download_file(client, output_path, file_info):
         else: chunksize = 4096
         if file_info.size - file_info.bytes_downloaded < chunksize:
             chunksize = file_info.size - file_info.bytes_downloaded
-        bytes_received = client.recv(chunksize)
+        bytes_received = recvall(client,chunksize)
         # client.sendall(b"ACK")
         output.write(bytes_received)
-        print(f"{len(bytes_received)}")
+        #print(f"{len(bytes_received)}")
         file_info.bytes_downloaded += len(bytes_received)
         percentage = 100 * file_info.bytes_downloaded/file_size
-        print(f"\rDownloading {filename} .... {percentage:.2f}%")
+        filename = file_info.filename
+        if filename not in cursor_positions:
+            cursor_positions[filename] = len(cursor_positions)
+
+        y = cursor_positions[filename]
+        stdscr.addstr(y, 0, f"Downloading {filename} .... {percentage:.2f}%")
+        stdscr.refresh()
+        
 
 
 def handle_input_file(client, file_list, file_info_dict):
@@ -158,5 +177,8 @@ def handle_input_file(client, file_list, file_info_dict):
         
                                          
 if __name__ == "__main__":
-    signal.signal(signal.SIGINT, signal_handler)
-    main()
+    try: 
+        signal.signal(signal.SIGINT, signal_handler)
+        main()
+    finally:
+        curses.endwin()
