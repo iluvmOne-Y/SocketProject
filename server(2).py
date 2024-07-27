@@ -42,10 +42,10 @@ def send_file(conn, file_list, file_info_dict):
             with open(filename, "rb") as input:
                 input.seek(file_info.bytes_send)
                 if file_info.priority == "CRITICAL":
-                    chunksize = 4096*10
+                    chunksize = 1024*200*10
                 elif file_info.priority == "HIGH":
-                    chunksize = 4096*4
-                else: chunksize = 4096
+                    chunksize = 1024*200*4
+                else: chunksize = 1024*200
                 if file_info.size - file_info.bytes_send < chunksize:
                     chunksize = file_info.size - file_info.bytes_send
                 bytes_read = input.read(chunksize)
