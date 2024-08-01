@@ -71,7 +71,7 @@ def scan_input_file(file_list, file_info_dict):
             with open("input.txt", "r") as input:
                 for line in input:
                     filename, priority = line.strip().split()
-                    if filename in file_list and filename not in downloaded_file:
+                    if filename in file_list and filename not in downloaded_file and filename not in downloading_file:
                         file_info = file_info_dict[filename]
                         file_info.priority = priority
                         downloading_file.append(filename)
