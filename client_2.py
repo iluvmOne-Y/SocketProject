@@ -18,7 +18,6 @@ class FileInfo:
         self.bytes_downloaded = 0
         self.priority = "NORMAL"
 
-pre_download_file = []
 downloading_file = []
 downloaded_file = []
 stop_event = threading.Event()
@@ -80,15 +79,14 @@ def scan_input_file(file_list, file_info_dict):
 def process(client, file_info_dict):
     # time.sleep(2)
     while not stop_event.is_set():
-        with download_lock:
-            for filename in downloading_file:
-                file_info = file_info_dict[filename]
-                output_path = os.path.join("output", filename)
-                if file_info.bytes_downloaded == file_info.size:
-                    downloaded_file.append(filename)
-                    downloading_file.remove(filename)
-                else:
-                    download_file(client, output_path, file_info)    
+        for filename in downloading_file:
+            file_info = file_info_dict[filename]
+            output_path = os.path.join("output", filename)
+            if file_info.bytes_downloaded == file_info.size:
+                downloaded_file.append(filename)
+                downloading_file.remove(filename)
+            else:
+                download_file(client, output_path, file_info)    
 
 def recvall(sock, n):
     data = bytearray()
